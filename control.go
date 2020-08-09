@@ -63,7 +63,7 @@ func basetag(s string) string {
 
 func (c controlDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Inode = uint64(c.ID)
-	attr.Mode = os.ModeDir | 0o755
+	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096
 	attr.Uid = uid
 	attr.Gid = gid

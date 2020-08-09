@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/signal"
 	"os/user"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"bazil.org/fuse"
@@ -52,7 +54,7 @@ type rootDir struct {
 
 func (d rootDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Inode = 1
-	attr.Mode = os.ModeDir | 0o755
+	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096
 	return nil
 }
@@ -114,15 +116,17 @@ func main() {
 			fuse.Unmount(mountpoint)
 		}
 	}()
-	fuse.Debug = func(msg interface{}) {
-		// log.Println(msg)
-	}
 	db, err = gorm.Open("sqlite3", "fs.db")
+	// db.LogMode(true)
+	fuse.Debug = func(msg interface{}) {
+		if !strings.Contains(msg.(fmt.Stringer).String(), ".git") {
+			// log.Println(msg)
+		}
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	db.LogMode(true)
 	db.AutoMigrate(item{})
 	if err = fs.Serve(c, filesystem{}); err != nil {
 		log.Fatal(err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"hash/fnv"
 	"os"
 	"path"
 	"strings"
@@ -12,13 +13,13 @@ import (
 )
 
 type tagsDir struct {
-	ID   id
-	Tags string
+	id   uint64
+	tags string
 }
 
 func (t tagsDir) Attr(ctx context.Context, attr *fuse.Attr) error {
-	attr.Inode = uint64(t.ID)
-	attr.Mode = os.ModeDir | 0o755
+	attr.Inode = t.id
+	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096
 	attr.Uid = uid
 	attr.Gid = gid
@@ -31,11 +32,17 @@ func addItems(items map[string]item, newItems []item) {
 	}
 }
 
+func genInode(s string) uint64 {
+	h := fnv.New64()
+	h.Write([]byte(s))
+	return h.Sum64()
+}
+
 func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	var result = emptyDir()
-	activeTagNames := strings.Split(t.Tags, string(os.PathSeparator))
+	activeTagNames := strings.Split(t.tags, string(os.PathSeparator))
 	items := make(map[string]item)
-	if t.Tags == "" {
+	if t.tags == "" {
 		var baseItems []item
 		if err := db.Find(&baseItems, "parent_id = 0 AND type = ?", tag).Error; err != nil {
 			return nil, err
@@ -66,13 +73,23 @@ func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	for _, v := range items {
 		result = append(result, fuse.Dirent{Inode: uint64(v.ID), Name: v.Name, Type: fuse.DT_Dir})
 	}
+	contentInode := genInode(t.tags)
+	result = append(result,
+		fuse.Dirent{Inode: contentInode, Name: "@", Type: fuse.DT_Dir},
+		fuse.Dirent{Inode: contentInode, Name: "@@", Type: fuse.DT_Dir})
 	return result, nil
 }
 
 func (t tagsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	if name == "@" {
+		return filesDir{tags: t.tags, id: genInode(t.tags)}, nil
+	}
+	if name == "@@" {
+		return filesDir{tags: t.tags, id: genInode(t.tags), renameReceiver: true}, nil
+	}
 	var result item
 	if !db.First(&result, "name = ?", name).RecordNotFound() {
-		return tagsDir{ID: result.ID, Tags: path.Join(t.Tags, result.Name)}, nil
+		return tagsDir{id: uint64(result.ID), tags: path.Join(t.tags, result.Name)}, nil
 	}
 	return nil, syscall.ENOENT
 }

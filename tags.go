@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"hash/fnv"
 	"os"
 	"path"
-	"strings"
 	"syscall"
 
 	"bazil.org/fuse"
@@ -13,12 +11,10 @@ import (
 )
 
 type tagsDir struct {
-	id   uint64
-	tags string
+	hasTags
 }
 
 func (t tagsDir) Attr(ctx context.Context, attr *fuse.Attr) error {
-	attr.Inode = t.id
 	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096
 	attr.Uid = uid
@@ -32,15 +28,10 @@ func addItems(items map[string]item, newItems []item) {
 	}
 }
 
-func genInode(s string) uint64 {
-	h := fnv.New64()
-	h.Write([]byte(s))
-	return h.Sum64()
-}
-
 func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	var result = emptyDir()
-	activeTagNames := strings.Split(t.tags, string(os.PathSeparator))
+	positiveTagNames, negativeTagNames := t.getTagsWithNegative()
+	excludeTagNames := append(positiveTagNames, negativeTagNames...)
 	items := make(map[string]item)
 	if t.tags == "" {
 		var baseItems []item
@@ -49,16 +40,16 @@ func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		}
 		addItems(items, baseItems)
 	}
-	for _, activeTagName := range activeTagNames {
+	for _, activeTagName := range positiveTagNames {
 		var activeItem item
 		if !db.First(&activeItem, "name = ?", activeTagName).RecordNotFound() {
 			var childItems, groupTags, childGroupItems []item
-			if err := db.Find(&childItems, "parent_id = ? AND name NOT IN (?) AND type = ?", activeItem.ID, activeTagNames, tag).Error; err != nil {
+			if err := db.Find(&childItems, "parent_id = ? AND name NOT IN (?) AND type = ?", activeItem.ID, excludeTagNames, tag).Error; err != nil {
 				return nil, err
 			}
 			addItems(items, childItems)
 			if err := db.Model(&activeItem).
-				Where("name NOT IN (?) AND type = ?", activeTagNames, grouptag).
+				Where("name NOT IN (?) AND type = ?", excludeTagNames, grouptag).
 				Related(&groupTags, "Items").Error; err != nil {
 				return nil, err
 			}
@@ -66,19 +57,18 @@ func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 			for i := range groupTags {
 				childGroupIDs[i] = groupTags[i].ID
 			}
-			db.Find(&childGroupItems, "parent_id IN (?) AND name NOT IN (?)", childGroupIDs, activeTagNames)
+			db.Find(&childGroupItems, "parent_id IN (?) AND name NOT IN (?)", childGroupIDs, excludeTagNames)
 			addItems(items, childGroupItems)
 		}
 	}
 	for _, v := range items {
 		result = append(result, fuse.Dirent{Inode: uint64(v.ID), Name: v.Name, Type: fuse.DT_Dir})
 	}
-	contentInode := genInode(t.tags)
 	if path.Base(t.tags) != negativeTag {
 		result = append(result,
-			fuse.Dirent{Inode: contentInode, Name: contentTag, Type: fuse.DT_Dir},
-			fuse.Dirent{Inode: contentInode, Name: renameReceiverTag, Type: fuse.DT_Dir},
-			fuse.Dirent{Inode: contentInode, Name: negativeTag, Type: fuse.DT_Dir})
+			fuse.Dirent{Name: contentTag, Type: fuse.DT_Dir},
+			fuse.Dirent{Name: renameReceiverTag, Type: fuse.DT_Dir},
+			fuse.Dirent{Name: negativeTag, Type: fuse.DT_Dir})
 	}
 	return result, nil
 }
@@ -86,15 +76,15 @@ func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 func (t tagsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	switch name {
 	case contentTag:
-		return filesDir{tags: t.tags, id: genInode(t.tags)}, nil
+		return filesDir{hasTags: hasTags{tags: t.tags}}, nil
 	case renameReceiverTag:
-		return filesDir{tags: t.tags, id: genInode(t.tags), renameReceiver: true}, nil
+		return filesDir{hasTags: hasTags{tags: t.tags}, renameReceiver: true}, nil
 	case negativeTag:
-		return tagsDir{tags: path.Join(t.tags, negativeTag), id: genInode(t.tags)}, nil
+		return tagsDir{hasTags: hasTags{tags: path.Join(t.tags, negativeTag)}}, nil
 	}
 	var result item
 	if !db.First(&result, "name = ?", name).RecordNotFound() {
-		return tagsDir{id: uint64(result.ID), tags: path.Join(t.tags, result.Name)}, nil
+		return tagsDir{hasTags: hasTags{tags: path.Join(t.tags, result.Name)}}, nil
 	}
 	return nil, syscall.ENOENT
 }
@@ -104,5 +94,9 @@ func (t tagsDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse
 }
 
 func (t tagsDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	return syscall.EPERM
+}
+
+func (t tagsDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
 	return syscall.EPERM
 }

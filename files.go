@@ -12,8 +12,7 @@ import (
 )
 
 type filesDir struct {
-	tags           string
-	id             uint64
+	hasTags
 	dirID          id
 	renameReceiver bool
 }
@@ -41,7 +40,6 @@ func (f filesDir) getDirectoryItem(dir string) (*item, error) {
 }
 
 func (f filesDir) Attr(ctx context.Context, attr *fuse.Attr) error {
-	attr.Inode = f.id
 	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096
 	attr.Uid = uid
@@ -95,32 +93,6 @@ func (f filesDir) findFile(name string) (*item, error) {
 	var i item
 	db.ScanRows(rows, &i)
 	return &i, nil
-}
-
-func (f filesDir) getAllTags() []string {
-	result := strings.Split(f.tags, string(os.PathSeparator))
-	if result[len(result)-1] == contentTag || result[len(result)-1] == renameReceiverTag {
-		result = result[:len(result)-1]
-	}
-	return result
-}
-
-func (f filesDir) getTags() []string {
-	allTags := f.getAllTags()
-	var result []string
-	skipTag := false
-	for _, tag := range allTags {
-		if skipTag {
-			skipTag = false
-		} else {
-			if tag == negativeTag {
-				skipTag = true
-			} else {
-				result = append(result, tag)
-			}
-		}
-	}
-	return result
 }
 
 func tagsItems(activeTagNames []string) []item {
@@ -179,7 +151,7 @@ func (f filesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		return nil, syscall.ENOENT
 	}
 	if i.Type == dir {
-		return filesDir{tags: f.tags, dirID: i.ID, id: f.id + 1}, nil
+		return filesDir{hasTags: hasTags{tags: f.tags}, dirID: i.ID}, nil
 	}
 	return content{id: uint64(i.ID), itype: i.Type}, nil
 }
@@ -231,6 +203,7 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	srcItem.Name = req.NewName
+	srcItem.ParentID = target.dirID
 	db.Save(&srcItem).Association("Items").Replace(tags)
 	to, err := filePath(uint64(srcItem.ID))
 	if err != nil {
@@ -247,7 +220,7 @@ func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, e
 	if !db.First(&parentDir, "id = ?", f.dirID).RecordNotFound() {
 		parentID = parentDir.ID
 	}
-	result := filesDir{f.tags, f.id + 1, 0, false}
+	result := filesDir{hasTags{tags: f.tags}, 0, false}
 	newDir := item{0, req.Name, dir, parentID, nil}
 	var tags []item
 	if db.Find(&tags, "name in (?)", tagsNames).RecordNotFound() {

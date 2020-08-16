@@ -1,83 +1,27 @@
 package main
 
 import (
-	"context"
-	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"os/user"
 	"strconv"
-	"syscall"
+
+	_ "net/http/pprof"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/docopt/docopt-go"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
 )
-
-const (
-	control = "control"
-	browse  = "browse"
-)
-
-type filesystem struct{}
-
-type itemFS struct {
-	name     string
-	itemType fuse.DirentType
-	size     uint64
-	file     io.ReadCloser
-}
 
 var (
 	db  *gorm.DB
 	uid uint32
 	gid uint32
 )
-
-func emptyDir() []fuse.Dirent {
-	return []fuse.Dirent{
-		{Inode: 0, Name: ".", Type: fuse.DT_Dir},
-		{Inode: 0, Name: "..", Type: fuse.DT_Dir},
-	}
-}
-
-func (filesystem) Root() (fs.Node, error) {
-	return rootDir{}, nil
-}
-
-type rootDir struct {
-}
-
-func (d rootDir) Attr(ctx context.Context, attr *fuse.Attr) error {
-	attr.Inode = 1
-	attr.Mode = os.ModeDir | 0755
-	attr.Size = 4096
-	return nil
-}
-
-func (d rootDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	var result = emptyDir()
-	result = append(result,
-		fuse.Dirent{Inode: 1, Name: control, Type: fuse.DT_Dir},
-		fuse.Dirent{Inode: 2, Name: browse, Type: fuse.DT_Dir})
-	return result, nil
-}
-
-func (d rootDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
-	return nil, nil, syscall.EACCES
-}
-
-func (d rootDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if name == control {
-		return controlDir{0}, nil
-	}
-	if name == browse {
-		return tagsDir{0, ""}, nil
-	}
-	return nil, syscall.ENOENT
-}
 
 func getUIDGID() {
 	u, err := user.Current()
@@ -96,11 +40,26 @@ func getUIDGID() {
 	gid = uint32(gidParsed)
 }
 
+const usage = `Usage:
+	memetagfs [-v] [-s storage] [-d database.db] [-p] <mountpoint>
+	memetagfs -h
+
+Options:
+	-s --storage dir        Storage directory [default: storage]
+	-d --database database  Path to the database [default: fs.db]
+	-p --prof               Run a webserver to profile the binary
+	-v --verbose            Verbose logging
+	-h --help               Show this help.
+`
+
+var storagePath string
+
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("Enter mountpoint as the only argument")
+	opts, err := docopt.ParseDoc(usage)
+	if err != nil {
+		log.Fatalln("Error parsing options:", err)
 	}
-	mountpoint := os.Args[1]
+	mountpoint, _ := opts.String("<mountpoint>")
 	getUIDGID()
 	c, err := fuse.Mount(mountpoint)
 	if err != nil {
@@ -114,18 +73,27 @@ func main() {
 			fuse.Unmount(mountpoint)
 		}
 	}()
-	db, err = gorm.Open("sqlite3", "fs.db")
-	// db.LogMode(true)
+	dbPath, _ := opts.String("--database")
+	db, err = gorm.Open("sqlite3", dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	if v, _ := opts.Bool("--verbose"); v {
+		db.LogMode(true)
+	}
+	storagePath, _ = opts.String("--storage")
 	fuse.Debug = func(msg interface{}) {
 		// if !strings.Contains(msg.(fmt.Stringer).String(), ".git") {
 		// log.Println(msg)
 		// }
 	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
 	db.AutoMigrate(item{})
+	if p, _ := opts.Bool("--prof"); p {
+		go func() {
+			log.Println(http.ListenAndServe("localhost:6060", nil))
+		}()
+	}
 	if err = fs.Serve(c, filesystem{}); err != nil {
 		log.Fatal(err)
 	}

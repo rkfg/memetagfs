@@ -32,7 +32,7 @@ func nameByID(id uint64) (string, error) {
 func filePath(id uint64) (string, error) {
 	first := fmt.Sprintf("%06d", id/1000)
 	second := fmt.Sprintf("%03d", id%1000)
-	dir := path.Join("storage", first, second)
+	dir := path.Join(storagePath, first, second)
 	os.MkdirAll(dir, 0755)
 	name, err := nameByID(id)
 	if err != nil {

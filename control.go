@@ -123,7 +123,7 @@ func (c controlDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 			var relatedExisting []item
 			db.Model(&result).Order("name ASC").Related(&relatedExisting, "Items")
 			if compareRelated(relatedExisting, related) {
-				return controlDir{result.ID}, nil
+				return controlDir{ID: result.ID}, nil
 			}
 		}
 	}

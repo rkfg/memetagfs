@@ -17,7 +17,7 @@ type controlDir struct {
 	ID id
 }
 
-var relatedRegexp = regexp.MustCompile(`(^[^\[]*) \[(.*)\]$`)
+var relatedRegexp = regexp.MustCompile(`(^[^\|]*) \|(.*)\|$`)
 
 func parseName(i *item) (related []string, err error) {
 	filteredName := i.Name
@@ -32,11 +32,14 @@ func parseName(i *item) (related []string, err error) {
 		filteredName = matches[1]
 		related = strings.Split(matches[2], ",")
 	} else {
-		if strings.ContainsAny(filteredName, "[]") {
+		if strings.ContainsAny(filteredName, "|") {
 			return nil, syscall.EINVAL
 		}
 	}
 	i.Name = filteredName
+	for i := range related {
+		related[i] = strings.TrimSpace(related[i])
+	}
 	return
 }
 
@@ -73,7 +76,7 @@ func (c controlDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 func (c controlDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	result := emptyDir()
 	var items []item
-	if err := db.Find(&items, "parent_id = ?", c.ID).Error; err != nil {
+	if err := db.Find(&items, "parent_id = ? AND type IN (?)", c.ID, []itemType{tag, grouptag}).Error; err != nil {
 		return nil, err
 	}
 	for _, v := range items {
@@ -88,7 +91,7 @@ func (c controlDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 			for i := range related {
 				names[i] = related[i].Name
 			}
-			name += " [" + strings.Join(names, ",") + "]"
+			name += " |" + strings.Join(names, ", ") + "|"
 		}
 		result = append(result, fuse.Dirent{Inode: uint64(v.ID), Name: name, Type: fuse.DT_Dir})
 	}

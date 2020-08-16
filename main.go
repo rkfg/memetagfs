@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/signal"
 	"os/user"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"bazil.org/fuse"
@@ -119,9 +117,9 @@ func main() {
 	db, err = gorm.Open("sqlite3", "fs.db")
 	// db.LogMode(true)
 	fuse.Debug = func(msg interface{}) {
-		if !strings.Contains(msg.(fmt.Stringer).String(), ".git") {
-			// log.Println(msg)
-		}
+		// if !strings.Contains(msg.(fmt.Stringer).String(), ".git") {
+		// log.Println(msg)
+		// }
 	}
 	if err != nil {
 		log.Fatal(err)

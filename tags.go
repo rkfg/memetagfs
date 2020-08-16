@@ -74,18 +74,23 @@ func (t tagsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		result = append(result, fuse.Dirent{Inode: uint64(v.ID), Name: v.Name, Type: fuse.DT_Dir})
 	}
 	contentInode := genInode(t.tags)
-	result = append(result,
-		fuse.Dirent{Inode: contentInode, Name: "@", Type: fuse.DT_Dir},
-		fuse.Dirent{Inode: contentInode, Name: "@@", Type: fuse.DT_Dir})
+	if path.Base(t.tags) != negativeTag {
+		result = append(result,
+			fuse.Dirent{Inode: contentInode, Name: contentTag, Type: fuse.DT_Dir},
+			fuse.Dirent{Inode: contentInode, Name: renameReceiverTag, Type: fuse.DT_Dir},
+			fuse.Dirent{Inode: contentInode, Name: negativeTag, Type: fuse.DT_Dir})
+	}
 	return result, nil
 }
 
 func (t tagsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if name == "@" {
+	switch name {
+	case contentTag:
 		return filesDir{tags: t.tags, id: genInode(t.tags)}, nil
-	}
-	if name == "@@" {
+	case renameReceiverTag:
 		return filesDir{tags: t.tags, id: genInode(t.tags), renameReceiver: true}, nil
+	case negativeTag:
+		return tagsDir{tags: path.Join(t.tags, negativeTag), id: genInode(t.tags)}, nil
 	}
 	var result item
 	if !db.First(&result, "name = ?", name).RecordNotFound() {
@@ -96,4 +101,8 @@ func (t tagsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 
 func (t tagsDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 	return nil, nil, syscall.EACCES
+}
+
+func (t tagsDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	return syscall.EPERM
 }

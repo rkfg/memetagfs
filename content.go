@@ -48,7 +48,6 @@ func (c content) filePath() (string, error) {
 func (c content) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Inode = c.id
 	if c.itype == file {
-		attr.Mode = 0644
 		path, err := c.filePath()
 		if err != nil {
 			return err
@@ -57,6 +56,7 @@ func (c content) Attr(ctx context.Context, attr *fuse.Attr) error {
 		if err != nil {
 			return syscall.ENOENT
 		}
+		attr.Mode = fi.Mode()
 		attr.Size = uint64(fi.Size())
 	} else {
 		attr.Mode = os.ModeDir | 0755
@@ -91,6 +91,11 @@ func (c content) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fu
 		}
 		os.Truncate(path, int64(req.Size))
 	}
+	return nil
+}
+
+func (c content) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
+	// just for vim and such to work
 	return nil
 }
 

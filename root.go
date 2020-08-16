@@ -43,7 +43,6 @@ func (d rootDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	result = append(result,
 		fuse.Dirent{Inode: 1, Name: control, Type: fuse.DT_Dir},
 		fuse.Dirent{Inode: 2, Name: browse, Type: fuse.DT_Dir},
-		fuse.Dirent{Inode: 3, Name: debug, Type: fuse.DT_Dir},
 	)
 	return result, nil
 }
@@ -58,8 +57,6 @@ func (d rootDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		return controlDir{}, nil
 	case browse:
 		return tagsDir{}, nil
-	case debug:
-		return debugDir{}, nil
 	}
 	return nil, syscall.ENOENT
 }

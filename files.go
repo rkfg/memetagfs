@@ -48,22 +48,17 @@ func (f filesDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 }
 
 func (f filesDir) listFiles(name string) (*sql.Rows, error) {
-	activeTagNames := f.getAllTags()
-	tagFilter := make([]string, 0, len(activeTagNames))
-	params := make([]interface{}, 0, len(activeTagNames))
-	negative := false
-	for i := range activeTagNames {
-		if negative {
-			negative = false
+	positiveTagNames, negativeTagNames := f.getTagsWithNegative()
+	tagFilter := make([]string, 0, len(positiveTagNames)+len(negativeTagNames)+3)
+	params := make([]interface{}, 0, len(positiveTagNames)+len(negativeTagNames)+3)
+	if f.dirID == 0 {
+		for i := range positiveTagNames {
+			tagFilter = append(tagFilter, "? IN tags")
+			params = append(params, positiveTagNames[i])
+		}
+		for i := range negativeTagNames {
 			tagFilter = append(tagFilter, "? NOT IN tags")
-			params = append(params, activeTagNames[i])
-		} else {
-			if activeTagNames[i] == negativeTag {
-				negative = true
-			} else {
-				tagFilter = append(tagFilter, "? IN tags")
-				params = append(params, activeTagNames[i])
-			}
+			params = append(params, positiveTagNames[i])
 		}
 	}
 	if name != "" {

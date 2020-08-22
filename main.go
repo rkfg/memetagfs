@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"os/user"
 	"strconv"
+	"strings"
+	"syscall"
 
 	_ "net/http/pprof"
 
@@ -23,31 +24,41 @@ var (
 	gid uint32
 )
 
-func getUIDGID() {
-	u, err := user.Current()
+func parseUserAndSet(uidgid []string) {
+	uidParsed, err := strconv.ParseUint(uidgid[0], 10, 32)
 	if err != nil {
-		log.Fatal("Error getting current user:", err)
+		log.Fatal("Error parsing uid:", err)
 	}
-	uidParsed, err := strconv.ParseUint(u.Uid, 10, 32)
+	gidParsed, err := strconv.ParseUint(uidgid[1], 10, 32)
 	if err != nil {
-		log.Fatal("Error parsing current user uid:", err)
-	}
-	gidParsed, err := strconv.ParseUint(u.Uid, 10, 32)
-	if err != nil {
-		log.Fatal("Error parsing current user gid:", err)
+		log.Fatal("Error parsing gid:", err)
 	}
 	uid = uint32(uidParsed)
 	gid = uint32(gidParsed)
 }
 
+func setUIDGID(uidgid string) {
+	if uidgid == "" {
+		uid = uint32(syscall.Getuid())
+		gid = uint32(syscall.Getgid())
+	} else {
+		split := strings.Split(uidgid, ":")
+		if len(split) != 2 {
+			log.Fatal("Invalid uid:gid parameter")
+		}
+		parseUserAndSet(split)
+	}
+}
+
 const usage = `Usage:
-	memetagfs [-v] [-s storage] [-d database.db] [-p] <mountpoint>
+	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] <mountpoint>
 	memetagfs -h
 
 Options:
 	-s --storage dir        Storage directory [default: storage]
 	-d --database database  Path to the database [default: fs.db]
 	-p --prof               Run a webserver to profile the binary
+    -u uid:gid              Use this uid and gid for files instead of current user
 	-v --verbose            Verbose logging
 	-h --help               Show this help.
 `
@@ -60,7 +71,11 @@ func main() {
 		log.Fatalln("Error parsing options:", err)
 	}
 	mountpoint, _ := opts.String("<mountpoint>")
-	getUIDGID()
+	if uidgid, err := opts.String("-u"); err == nil {
+		setUIDGID(uidgid)
+	} else {
+		setUIDGID("")
+	}
 	c, err := fuse.Mount(mountpoint)
 	if err != nil {
 		log.Fatal(err)

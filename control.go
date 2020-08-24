@@ -47,12 +47,19 @@ func updateRelated(db *gorm.DB, i *item, related []string) error {
 	model := db.Model(i).Association("Items").Clear()
 	if len(related) > 0 {
 		var otherTags []item
-		if err := db.Find(&otherTags, "name IN (?)", related).Error; err != nil {
+		if err := db.Find(&otherTags, "name IN (?) AND type = ?", related, grouptag).Error; err != nil {
 			return err
 		}
 		model.Append(otherTags)
 	}
 	return nil
+}
+
+func itemtype(s string) itemType {
+	if strings.HasPrefix(s, "!") {
+		return grouptag
+	}
+	return tag
 }
 
 func basetag(s string) string {
@@ -118,7 +125,7 @@ func (c controlDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !db.First(&result, "parent_id = ? AND name = ?", c.ID, src.Name).RecordNotFound() {
+	if !db.First(&result, "parent_id = ? AND name = ? AND type = ?", c.ID, src.Name, src.Type).RecordNotFound() {
 		if result.Type == src.Type {
 			var relatedExisting []item
 			db.Model(&result).Order("name ASC").Related(&relatedExisting, "Items")
@@ -131,12 +138,12 @@ func (c controlDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 }
 
 func (c controlDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
-	newItem := item{Name: req.Name, Type: tag, ParentID: c.ID}
+	newItem := item{Name: req.Name, ParentID: c.ID}
 	related, err := parseName(&newItem)
 	if err != nil {
 		return nil, err
 	}
-	if !db.First(&item{}, "name = ?", newItem.Name).RecordNotFound() {
+	if !db.First(&item{}, "name = ? AND type = ?", newItem.Name, newItem.Type).RecordNotFound() {
 		return nil, syscall.EEXIST
 	}
 	if err := db.Create(&newItem).Error; err != nil {
@@ -150,7 +157,7 @@ func (c controlDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node,
 
 func (c controlDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	var target item
-	if db.First(&target, "name = ? AND parent_id = ?", basetag(req.Name), c.ID).RecordNotFound() {
+	if db.First(&target, "name = ? AND parent_id = ? AND type = ?", basetag(req.Name), c.ID, itemtype(req.Name)).RecordNotFound() {
 		return syscall.ENOENT
 	}
 	if !db.First(&item{}, "parent_id = ?", target.ID).RecordNotFound() {
@@ -166,7 +173,7 @@ func (c controlDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir 
 		return syscall.EINVAL
 	}
 	var src item
-	if db.First(&src, "name = ? AND parent_id = ?", basetag(req.OldName), c.ID).RecordNotFound() {
+	if db.First(&src, "name = ? AND parent_id = ? AND type = ?", basetag(req.OldName), c.ID, itemtype(req.OldName)).RecordNotFound() {
 		return syscall.ENOENT
 	}
 	src.ParentID = targetDir.ID

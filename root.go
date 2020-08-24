@@ -54,9 +54,9 @@ func (d rootDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse
 func (d rootDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	switch name {
 	case control:
-		return controlDir{}, nil
-	case browse:
 		return tagsDir{}, nil
+	case browse:
+		return browseDir{}, nil
 	}
 	return nil, syscall.ENOENT
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"syscall"
+	"time"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -58,6 +59,9 @@ func (c content) Attr(ctx context.Context, attr *fuse.Attr) error {
 		}
 		attr.Mode = fi.Mode()
 		attr.Size = uint64(fi.Size())
+		attr.Atime = time.Now()
+		attr.Ctime = fi.ModTime()
+		attr.Mtime = fi.ModTime()
 	} else {
 		attr.Mode = os.ModeDir | 0755
 		attr.Size = 4096

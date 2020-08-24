@@ -18,10 +18,16 @@ const (
 type filesystem struct{}
 
 func emptyDir() []fuse.Dirent {
-	return []fuse.Dirent{
-		{Inode: 0, Name: ".", Type: fuse.DT_Dir},
-		{Inode: 0, Name: "..", Type: fuse.DT_Dir},
-	}
+	return emptyDirAlloc(10)
+}
+
+func emptyDirAlloc(c int) []fuse.Dirent {
+	result := make([]fuse.Dirent, 0, c)
+	result = append(result,
+		fuse.Dirent{Inode: 0, Name: ".", Type: fuse.DT_Dir},
+		fuse.Dirent{Inode: 0, Name: "..", Type: fuse.DT_Dir},
+	)
+	return result
 }
 
 func (filesystem) Root() (fs.Node, error) {

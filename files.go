@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"log"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -11,17 +14,28 @@ import (
 	"bazil.org/fuse/fs"
 )
 
-type filesDir struct {
-	hasTags
-	dirID          id
-	renameReceiver bool
-}
+type (
+	filesDir struct {
+		hasTags
+		dirID          id
+		renameReceiver bool
+	}
+	filelist map[string][]fuse.Dirent
+)
 
 const (
 	negativeTag       = "_"
 	contentTag        = "@"
 	renameReceiverTag = "@@"
 )
+
+var (
+	nameID = regexp.MustCompile(`^\|(\d+)\|(.*)`)
+)
+
+func isValidName(s string) bool {
+	return !strings.Contains(s, "|")
+}
 
 func (f filesDir) getDirectoryItem(dir string) (*item, error) {
 	if len(dir) == 0 {
@@ -62,8 +76,19 @@ func (f filesDir) listFiles(name string) (*sql.Rows, error) {
 		}
 	}
 	if name != "" {
-		params = append(params, name)
+		matches := nameID.FindStringSubmatch(name)
+		if matches != nil {
+			id, err := strconv.ParseUint(matches[1], 10, 64)
+			if err == nil {
+				name = matches[2]
+				tagFilter = append(tagFilter, "i.id = ?")
+				params = append(params, id)
+			} else {
+				log.Printf("Error parsing %s: %v", name, err)
+			}
+		}
 		tagFilter = append(tagFilter, "i.name = ?")
+		params = append(params, name)
 	}
 	tagFilter = append(tagFilter, "i.parent_id = ?", "i.type IN (?)")
 	params = append(params, f.dirID, []itemType{file, dir})
@@ -98,28 +123,46 @@ func tagsItems(activeTagNames []string) []item {
 	return tags
 }
 
+func dedupFilelist(fl filelist) []fuse.Dirent {
+	var result = emptyDirAlloc(len(fl))
+	for k := range fl {
+		if len(fl[k]) == 1 {
+			result = append(result, fl[k][0])
+		} else {
+			for i := range fl[k] {
+				fl[k][i].Name = "|" + strconv.FormatUint(fl[k][i].Inode, 10) + "|" + fl[k][i].Name
+				result = append(result, fl[k][i])
+			}
+		}
+	}
+	return result
+}
+
 func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	var result = emptyDir()
 	if f.renameReceiver {
-		return result, nil
+		return emptyDir(), nil
 	}
 	rows, err := f.listFiles("")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	fl := filelist{}
 	for rows.Next() {
 		var i item
 		db.ScanRows(rows, &i)
-		result = append(result, fuse.Dirent{Inode: uint64(i.ID), Name: i.Name, Type: i.fuseType()})
+		fl[i.Name] = append(fl[i.Name], fuse.Dirent{Inode: uint64(i.ID), Name: i.Name, Type: i.fuseType()})
 	}
-	return result, nil
+	return dedupFilelist(fl), nil
 }
 
 func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (node fs.Node, handle fs.Handle, err error) {
+	if !isValidName(req.Name) {
+		return nil, nil, syscall.EINVAL
+	}
 	activeTagNames := f.getTags()
 	var tags []item
-	db.Find(&tags, "name IN (?)", activeTagNames)
+	db.Find(&tags, "name IN (?) AND type = ?", activeTagNames, tag)
 	var newItem = item{Name: req.Name, Type: file, ParentID: f.dirID}
 	db.Create(&newItem).Association("Items").Append(tags)
 	c := content{itype: file, id: uint64(newItem.ID)}
@@ -180,6 +223,9 @@ func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 }
 
 func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
+	if !isValidName(req.NewName) {
+		return syscall.EINVAL
+	}
 	target, ok := newDir.(filesDir)
 	if !ok {
 		return syscall.EINVAL
@@ -218,7 +264,7 @@ func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, e
 	result := filesDir{hasTags{tags: f.tags}, 0, false}
 	newDir := item{0, req.Name, dir, parentID, nil}
 	var tags []item
-	if db.Find(&tags, "name in (?)", tagsNames).RecordNotFound() {
+	if db.Find(&tags, "name IN (?) AND type = ?", tagsNames, tag).RecordNotFound() {
 		return nil, syscall.ENOENT
 	}
 	if err := db.Create(&newDir).Association("Items").Replace(&tags).Error; err != nil {

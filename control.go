@@ -150,7 +150,7 @@ func (c controlDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node,
 
 func (c controlDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	var target item
-	if db.First(&target, "name = ?", basetag(req.Name), c.ID).RecordNotFound() {
+	if db.First(&target, "name = ? AND parent_id = ?", basetag(req.Name), c.ID).RecordNotFound() {
 		return syscall.ENOENT
 	}
 	if !db.First(&item{}, "parent_id = ?", target.ID).RecordNotFound() {

@@ -22,13 +22,17 @@ func (h hasTags) getTagsWithNegative() (positive []string, negative []string) {
 	nextIsNegative := false
 	for _, tag := range allTags {
 		if nextIsNegative {
-			negative = append(negative, tag)
+			if tag != "" {
+				negative = append(negative, tag)
+			}
 			nextIsNegative = false
 		} else {
 			if tag == negativeTag {
 				nextIsNegative = true
 			} else {
-				positive = append(positive, tag)
+				if tag != "" {
+					positive = append(positive, tag)
+				}
 			}
 		}
 	}

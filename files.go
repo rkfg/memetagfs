@@ -58,7 +58,7 @@ func (f filesDir) listFiles(name string) (*sql.Rows, error) {
 		}
 		for i := range negativeTagNames {
 			tagFilter = append(tagFilter, "? NOT IN tags")
-			params = append(params, positiveTagNames[i])
+			params = append(params, negativeTagNames[i])
 		}
 	}
 	if name != "" {

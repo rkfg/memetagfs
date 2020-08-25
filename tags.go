@@ -146,12 +146,16 @@ func (t tagsDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, er
 	if !db.First(&item{}, "name = ? AND type = ?", newItem.Name, newItem.Type).RecordNotFound() {
 		return nil, syscall.EEXIST
 	}
-	if err := db.Create(&newItem).Error; err != nil {
+	tx := db.Begin()
+	defer tx.RollbackUnlessCommitted()
+	if err := tx.Create(&newItem).Error; err != nil {
 		return nil, err
 	}
-	if err := updateRelated(db, &newItem, related); err != nil {
+	if err := updateRelated(tx, &newItem, related); err != nil {
 		return nil, err
 	}
+	invalidateCache()
+	tx.Commit()
 	return tagsDir{ID: newItem.ID}, nil
 }
 
@@ -164,6 +168,7 @@ func (t tagsDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 		return syscall.ENOTEMPTY
 	}
 	db.Delete(&item{}, "id = ?", target.ID)
+	invalidateCache()
 	return nil
 }
 
@@ -189,6 +194,7 @@ func (t tagsDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.
 	}
 	tx.Save(&src)
 	tx.Commit()
+	invalidateCache()
 	return nil
 }
 

@@ -19,6 +19,7 @@ type (
 		hasTags
 		dirID          id
 		renameReceiver bool
+		cache          *fileCache
 	}
 	filelist map[string][]fuse.Dirent
 )
@@ -41,15 +42,24 @@ func (f filesDir) getDirectoryItem(dir string) (*item, error) {
 	if len(dir) == 0 {
 		return nil, nil
 	}
+	if cached, ok := f.cache.get(dir); ok {
+		if cached.missing {
+			return nil, syscall.ENOENT
+		}
+		return cached, nil
+	}
 	rows, err := f.listFiles(dir)
 	if err != nil {
+		f.cache.putMissing(dir)
 		return nil, err
 	}
 	var result item
 	if !rows.Next() {
+		f.cache.putMissing(dir)
 		return nil, syscall.ENOENT
 	}
 	db.ScanRows(rows, &result)
+	f.cache.put(dir, &result)
 	return &result, nil
 }
 
@@ -102,16 +112,25 @@ func (f filesDir) listFiles(name string) (*sql.Rows, error) {
 }
 
 func (f filesDir) findFile(name string) (*item, error) {
+	if cached, ok := f.cache.get(name); ok {
+		if cached.missing {
+			return nil, nil
+		}
+		return cached, nil
+	}
 	rows, err := f.listFiles(name)
 	if err != nil {
+		f.cache.putMissing(name)
 		return nil, err
 	}
 	defer rows.Close()
 	if !rows.Next() {
+		f.cache.putMissing(name)
 		return nil, nil
 	}
 	var i item
 	db.ScanRows(rows, &i)
+	f.cache.put(name, &i)
 	return &i, nil
 }
 
@@ -151,6 +170,7 @@ func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	for rows.Next() {
 		var i item
 		db.ScanRows(rows, &i)
+		f.cache.put(i.Name, &i)
 		fl[i.Name] = append(fl[i.Name], fuse.Dirent{Inode: uint64(i.ID), Name: i.Name, Type: i.fuseType()})
 	}
 	return dedupFilelist(fl), nil
@@ -164,9 +184,12 @@ func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fus
 	var tags []item
 	db.Find(&tags, "name IN (?) AND type = ?", activeTagNames, tag)
 	var newItem = item{Name: req.Name, Type: file, ParentID: f.dirID}
-	db.Create(&newItem).Association("Items").Append(tags)
+	tx := db.Begin()
+	defer tx.RollbackUnlessCommitted()
+	invalidateCache()
+	tx.Create(&newItem).Association("Items").Append(tags)
 	c := content{itype: file, id: uint64(newItem.ID)}
-	path, err := c.filePath()
+	path, err := c.filePathWithTx(tx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -174,6 +197,7 @@ func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fus
 	if err != nil {
 		return nil, nil, err
 	}
+	tx.Commit()
 	return c, virtualFile{handle: file}, nil
 }
 
@@ -189,8 +213,9 @@ func (f filesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		return nil, syscall.ENOENT
 	}
 	if i.Type == dir {
-		return filesDir{hasTags: hasTags{tags: f.tags}, dirID: i.ID}, nil
+		return filesDir{hasTags: hasTags{tags: f.tags}, dirID: i.ID, cache: newCache()}, nil
 	}
+	contentCache.putID(i.ID, i)
 	return content{id: uint64(i.ID), itype: i.Type}, nil
 }
 
@@ -217,6 +242,7 @@ func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 			}
 		}
 		db.Delete(&i)
+		invalidateCache()
 		return nil
 	}
 	return syscall.ENOENT
@@ -243,14 +269,20 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 	if err != nil {
 		return err
 	}
+	invalidateCache()
 	srcItem.Name = req.NewName
 	srcItem.ParentID = target.dirID
-	db.Save(&srcItem).Association("Items").Replace(tags)
-	to, err := filePath(uint64(srcItem.ID))
+	tx := db.Begin()
+	defer tx.RollbackUnlessCommitted()
+	tx.Save(&srcItem).Association("Items").Replace(tags)
+	to, err := filePathWithTx(tx, uint64(srcItem.ID))
 	if err != nil {
 		return err
 	}
-	os.Rename(from, to)
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+	tx.Commit()
 	return nil
 }
 
@@ -261,15 +293,19 @@ func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, e
 	if !db.First(&parentDir, "id = ?", f.dirID).RecordNotFound() {
 		parentID = parentDir.ID
 	}
-	result := filesDir{hasTags{tags: f.tags}, 0, false}
-	newDir := item{0, req.Name, dir, parentID, nil}
+	result := filesDir{hasTags{tags: f.tags}, 0, false, newCache()}
+	newDir := item{0, req.Name, dir, parentID, nil, false}
 	var tags []item
 	if db.Find(&tags, "name IN (?) AND type = ?", tagsNames, tag).RecordNotFound() {
 		return nil, syscall.ENOENT
 	}
-	if err := db.Create(&newDir).Association("Items").Replace(&tags).Error; err != nil {
+	tx := db.Begin()
+	defer tx.RollbackUnlessCommitted()
+	if err := tx.Create(&newDir).Association("Items").Replace(&tags).Error; err != nil {
 		return nil, syscall.EINVAL
 	}
 	result.dirID = newDir.ID
+	tx.Commit()
+	invalidateCache()
 	return result, nil
 }

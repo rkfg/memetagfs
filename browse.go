@@ -12,6 +12,7 @@ import (
 
 type browseDir struct {
 	hasTags
+	cache *fileCache
 }
 
 func (b browseDir) Attr(ctx context.Context, attr *fuse.Attr) error {
@@ -63,6 +64,7 @@ func (b browseDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	}
 	for _, v := range items {
 		result = append(result, fuse.Dirent{Inode: uint64(v.ID), Name: v.Name, Type: fuse.DT_Dir})
+		b.cache.put(v.Name, &v)
 	}
 	if path.Base(b.tags) != negativeTag {
 		result = append(result,
@@ -76,15 +78,18 @@ func (b browseDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 func (b browseDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	switch name {
 	case contentTag:
-		return filesDir{hasTags: hasTags{tags: b.tags}}, nil
+		return filesDir{hasTags: hasTags{tags: b.tags}, cache: newCache()}, nil
 	case renameReceiverTag:
-		return filesDir{hasTags: hasTags{tags: b.tags}, renameReceiver: true}, nil
+		return filesDir{hasTags: hasTags{tags: b.tags}, renameReceiver: true, cache: newCache()}, nil
 	case negativeTag:
-		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, negativeTag)}}, nil
+		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, negativeTag)}, cache: newCache()}, nil
+	}
+	if _, ok := b.cache.get(name); ok {
+		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, name)}, cache: newCache()}, nil
 	}
 	var result item
 	if !db.First(&result, "name = ?", name).RecordNotFound() {
-		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, result.Name)}}, nil
+		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, result.Name)}, cache: newCache()}, nil
 	}
 	return nil, syscall.ENOENT
 }

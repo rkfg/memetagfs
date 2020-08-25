@@ -11,6 +11,7 @@ import (
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/jinzhu/gorm"
 )
 
 type content struct {
@@ -22,24 +23,42 @@ type virtualFile struct {
 	handle *os.File
 }
 
-func nameByID(id uint64) (string, error) {
+var contentCache *fileCache = newCache()
+
+func nameByID(db *gorm.DB, itemID uint64) (string, error) {
+	if cached, ok := contentCache.getByID(id(itemID)); ok {
+		if cached.missing {
+			return "", syscall.ENOENT
+		}
+		return cached.Name, nil
+	}
 	var result item
-	if db.Model(&item{}).Select("name").First(&result, "id = ?", id).RecordNotFound() {
+	if db.Model(&item{}).Select("name").First(&result, "id = ?", itemID).RecordNotFound() {
+		contentCache.putMissingID(id(itemID))
 		return "", syscall.ENOENT
 	}
+	contentCache.putID(id(itemID), &result)
 	return result.Name, nil
 }
 
 func filePath(id uint64) (string, error) {
+	return filePathWithTx(db, id)
+}
+
+func filePathWithTx(tx *gorm.DB, id uint64) (string, error) {
 	first := fmt.Sprintf("%06d", id/1000)
 	second := fmt.Sprintf("%03d", id%1000)
 	dir := path.Join(storagePath, first, second)
 	os.MkdirAll(dir, 0755)
-	name, err := nameByID(id)
+	name, err := nameByID(tx, id)
 	if err != nil {
 		return "", err
 	}
 	return path.Join(dir, fmt.Sprintf("%09d_%s", id, name)), nil
+}
+
+func (c content) filePathWithTx(tx *gorm.DB) (string, error) {
+	return filePathWithTx(tx, c.id)
 }
 
 func (c content) filePath() (string, error) {

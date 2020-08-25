@@ -51,7 +51,7 @@ func setUIDGID(uidgid string) {
 }
 
 const usage = `Usage:
-	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] <mountpoint>
+	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] [--logcache] <mountpoint>
 	memetagfs [-d database.db] [-s storage] -i -t tags.sql -c data.sql -r storage
 	memetagfs -h
 
@@ -65,6 +65,7 @@ Options:
 	-c data.sql             data.sql file from jtagsfs
 	-r storage              storage from jtagsfs
 	-v --verbose            Verbose logging
+	--logcache              Display internal cache events and effectiveness
 	-h --help               Show this help.
 `
 
@@ -81,6 +82,7 @@ func main() {
 	} else {
 		setUIDGID("")
 	}
+	logCache = opts["--logcache"].(bool)
 	dbPath, _ := opts.String("--database")
 	db, err = gorm.Open("sqlite3", dbPath)
 	if err != nil {

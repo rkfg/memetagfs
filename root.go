@@ -62,7 +62,7 @@ func (d rootDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	case control:
 		return tagsDir{}, nil
 	case browse:
-		return browseDir{}, nil
+		return browseDir{cache: newCache()}, nil
 	}
 	return nil, syscall.ENOENT
 }

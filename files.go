@@ -287,6 +287,9 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 }
 
 func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
+	if !isValidName(req.Name) {
+		return nil, syscall.EINVAL
+	}
 	tagsNames := f.getTags()
 	var parentID id = 0
 	var parentDir item

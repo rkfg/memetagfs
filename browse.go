@@ -69,7 +69,7 @@ func (b browseDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	if path.Base(b.tags) != negativeTag {
 		result = append(result,
 			fuse.Dirent{Name: contentTag, Type: fuse.DT_Dir},
-			fuse.Dirent{Name: renameReceiverTag, Type: fuse.DT_Dir},
+			fuse.Dirent{Name: allTagsTag, Type: fuse.DT_Dir},
 			fuse.Dirent{Name: negativeTag, Type: fuse.DT_Dir})
 	}
 	return result, nil
@@ -79,8 +79,8 @@ func (b browseDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	switch name {
 	case contentTag:
 		return filesDir{hasTags: hasTags{tags: b.tags}, cache: newCache()}, nil
-	case renameReceiverTag:
-		return filesDir{hasTags: hasTags{tags: b.tags}, renameReceiver: true, cache: newCache()}, nil
+	case allTagsTag:
+		return filesDir{hasTags: hasTags{tags: b.tags}, allTags: true, cache: newCache()}, nil
 	case negativeTag:
 		return browseDir{hasTags: hasTags{tags: path.Join(b.tags, negativeTag)}, cache: newCache()}, nil
 	}

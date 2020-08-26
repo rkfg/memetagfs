@@ -10,7 +10,9 @@ type item struct {
 	Type     itemType `gorm:"index"`
 	ParentID id       `gorm:"index"`
 	Items    []*item  `gorm:"many2many:item_tags;association_jointable_foreignkey:other_id"`
-	missing  bool     `gorm:"-"`
+	Tag      string   `gorm:"-"`
+	missing  bool
+	tags     []string
 }
 
 func (i *item) fuseType() fuse.DirentType {

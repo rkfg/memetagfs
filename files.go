@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -17,21 +18,23 @@ import (
 type (
 	filesDir struct {
 		hasTags
-		dirID          id
-		renameReceiver bool
-		cache          *fileCache
+		dirID   id
+		allTags bool
+		cache   *fileCache
 	}
-	filelist map[string][]fuse.Dirent
+	filelist       map[string][]fuse.Dirent
+	taggedFilelist map[id]*item
 )
 
 const (
-	negativeTag       = "_"
-	contentTag        = "@"
-	renameReceiverTag = "@@"
+	negativeTag = "_"
+	contentTag  = "@"
+	allTagsTag  = "@@"
 )
 
 var (
-	nameID = regexp.MustCompile(`^\|(\d+)\|(.*)`)
+	nameID          = regexp.MustCompile(`^\|(\d+)\|(.*)`)
+	nameWithoutTags = regexp.MustCompile(`^\|(\d+)(\||.*)\|([^|]+)$`)
 )
 
 func isValidName(s string) bool {
@@ -72,6 +75,10 @@ func (f filesDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 }
 
 func (f filesDir) listFiles(name string) (*sql.Rows, error) {
+	return f.listFilesWithTags(name, false)
+}
+
+func (f filesDir) listFilesWithTags(name string, tags bool) (*sql.Rows, error) {
 	positiveTagNames, negativeTagNames := f.getTagsWithNegative()
 	tagFilter := make([]string, 0, len(positiveTagNames)+len(negativeTagNames)+3)
 	params := make([]interface{}, 0, len(positiveTagNames)+len(negativeTagNames)+3)
@@ -102,13 +109,41 @@ func (f filesDir) listFiles(name string) (*sql.Rows, error) {
 	}
 	tagFilter = append(tagFilter, "i.parent_id = ?", "i.type IN (?)")
 	params = append(params, f.dirID, []itemType{file, dir})
+	joinTags := " FROM items i"
+	if tags {
+		joinTags = ", t.name AS tag FROM items i LEFT JOIN item_tags it ON i.id = it.item_id LEFT JOIN items t ON t.id = it.other_id"
+	}
 	query := "WITH tags AS (SELECT name FROM item_tags LEFT JOIN items ON id = other_id WHERE item_id = i.id) " +
-		"SELECT * FROM items i WHERE " + strings.Join(tagFilter, " AND ")
+		"SELECT *" + joinTags + " WHERE " + strings.Join(tagFilter, " AND ")
 	rows, err := db.Raw(query, params...).Rows()
 	if err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (f filesDir) cleanupName(name string, withID bool) (string, error) {
+	if f.allTags {
+		match := nameWithoutTags.FindStringSubmatch(name)
+		if match == nil {
+			if !isValidName(name) {
+				return "", syscall.ENOENT
+			}
+			return name, nil
+		}
+		if !isValidName(match[3]) {
+			return "", syscall.ENOENT
+		}
+		if withID {
+			return fmt.Sprintf("|%s|%s", match[1], match[3]), nil
+		} else {
+			return match[3], nil
+		}
+	}
+	if !isValidName(name) {
+		return "", syscall.ENOENT
+	}
+	return name, nil
 }
 
 func (f filesDir) findFile(name string) (*item, error) {
@@ -117,6 +152,10 @@ func (f filesDir) findFile(name string) (*item, error) {
 			return nil, nil
 		}
 		return cached, nil
+	}
+	name, err := f.cleanupName(name, true)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := f.listFiles(name)
 	if err != nil {
@@ -158,32 +197,55 @@ func dedupFilelist(fl filelist) []fuse.Dirent {
 }
 
 func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	if f.renameReceiver {
-		return emptyDir(), nil
+	tags := false
+	if f.allTags {
+		tags = true
 	}
-	rows, err := f.listFiles("")
+	rows, err := f.listFilesWithTags("", tags)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	fl := filelist{}
+	tfl := taggedFilelist{}
 	for rows.Next() {
 		var i item
 		db.ScanRows(rows, &i)
-		f.cache.put(i.Name, &i)
-		fl[i.Name] = append(fl[i.Name], fuse.Dirent{Inode: uint64(i.ID), Name: i.Name, Type: i.fuseType()})
+		if tags {
+			if _, ok := tfl[i.ID]; ok {
+				tfl[i.ID].tags = append(tfl[i.ID].tags, i.Tag)
+			} else {
+				i.tags = append(i.tags, i.Tag)
+				tfl[i.ID] = &i
+			}
+		} else {
+			name := i.Name
+			f.cache.put(name, &i)
+			fl[name] = append(fl[name], fuse.Dirent{Inode: uint64(i.ID), Name: name, Type: i.fuseType()})
+		}
+	}
+	if tags {
+		result := emptyDir()
+		for idx := range tfl {
+			i := tfl[idx]
+			name := fmt.Sprintf("|%d|%s|%s", i.ID, strings.Join(i.tags, "|"), i.Name)
+			f.cache.put(name, i)
+			result = append(result, fuse.Dirent{Inode: uint64(i.ID), Name: name, Type: i.fuseType()})
+		}
+		return result, nil
 	}
 	return dedupFilelist(fl), nil
 }
 
 func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (node fs.Node, handle fs.Handle, err error) {
-	if !isValidName(req.Name) {
-		return nil, nil, syscall.EINVAL
+	name, err := f.cleanupName(req.Name, false)
+	if err != nil {
+		return nil, nil, err
 	}
 	activeTagNames := f.getTags()
 	var tags []item
 	db.Find(&tags, "name IN (?) AND type = ?", activeTagNames, tag)
-	var newItem = item{Name: req.Name, Type: file, ParentID: f.dirID}
+	var newItem = item{Name: name, Type: file, ParentID: f.dirID}
 	tx := db.Begin()
 	defer tx.RollbackUnlessCommitted()
 	invalidateCache()
@@ -202,9 +264,6 @@ func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fus
 }
 
 func (f filesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if f.renameReceiver {
-		return nil, syscall.ENOENT
-	}
 	i, err := f.findFile(name)
 	if err != nil {
 		return nil, err
@@ -249,12 +308,13 @@ func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 }
 
 func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
-	if !isValidName(req.NewName) {
-		return syscall.EINVAL
-	}
 	target, ok := newDir.(filesDir)
 	if !ok {
 		return syscall.EINVAL
+	}
+	newName, err := f.cleanupName(req.NewName, false)
+	if err != nil {
+		return err
 	}
 	srcItem, err := f.findFile(req.OldName)
 	if err != nil {
@@ -270,7 +330,7 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	invalidateCache()
-	srcItem.Name = req.NewName
+	srcItem.Name = newName
 	srcItem.ParentID = target.dirID
 	tx := db.Begin()
 	defer tx.RollbackUnlessCommitted()
@@ -287,7 +347,8 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 }
 
 func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
-	if !isValidName(req.Name) {
+	name, err := f.cleanupName(req.Name, false)
+	if err != nil {
 		return nil, syscall.EINVAL
 	}
 	tagsNames := f.getTags()
@@ -297,7 +358,7 @@ func (f filesDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, e
 		parentID = parentDir.ID
 	}
 	result := filesDir{hasTags{tags: f.tags}, 0, false, newCache()}
-	newDir := item{0, req.Name, dir, parentID, nil, false}
+	newDir := item{ID: 0, Name: name, Type: dir, ParentID: parentID}
 	var tags []item
 	if db.Find(&tags, "name IN (?) AND type = ?", tagsNames, tag).RecordNotFound() {
 		return nil, syscall.ENOENT

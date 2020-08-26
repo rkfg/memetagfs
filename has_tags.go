@@ -11,7 +11,7 @@ type hasTags struct {
 
 func (h hasTags) getAllTags() []string {
 	result := strings.Split(h.tags, string(os.PathSeparator))
-	if result[len(result)-1] == contentTag || result[len(result)-1] == renameReceiverTag {
+	if result[len(result)-1] == contentTag || result[len(result)-1] == allTagsTag {
 		result = result[:len(result)-1]
 	}
 	return result

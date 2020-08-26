@@ -292,8 +292,8 @@ func (f filesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	return content{id: uint64(i.ID), itype: i.Type}, nil
 }
 
-func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
-	i, err := f.findFile(req.Name)
+func (f filesDir) deleteFile(name string) error {
+	i, err := f.findFile(name)
 	if err != nil {
 		return err
 	}
@@ -321,6 +321,10 @@ func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	return syscall.ENOENT
 }
 
+func (f filesDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	return f.deleteFile(req.Name)
+}
+
 func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
 	target, ok := newDir.(filesDir)
 	if !ok {
@@ -344,6 +348,7 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	invalidateCache()
+	f.deleteFile(newName)
 	srcItem.Name = newName
 	srcItem.ParentID = target.dirID
 	tx := db.Begin()

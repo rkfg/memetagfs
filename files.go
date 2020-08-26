@@ -122,26 +122,40 @@ func (f filesDir) listFilesWithTags(name string, tags bool) (*sql.Rows, error) {
 	return rows, nil
 }
 
-func (f filesDir) cleanupName(name string, withID bool) (string, error) {
-	if f.allTags {
-		match := nameWithoutTags.FindStringSubmatch(name)
-		if match == nil {
-			if !isValidName(name) {
-				return "", syscall.ENOENT
-			}
-			return name, nil
-		}
-		if !isValidName(match[3]) {
+func cleanupAllTags(name string, withID bool) (string, error) {
+	match := nameWithoutTags.FindStringSubmatch(name)
+	if match == nil {
+		if !isValidName(name) {
 			return "", syscall.ENOENT
 		}
-		if withID {
-			return fmt.Sprintf("|%s|%s", match[1], match[3]), nil
-		} else {
-			return match[3], nil
-		}
+		return name, nil
+	}
+	if !isValidName(match[3]) {
+		return "", syscall.ENOENT
+	}
+	if withID {
+		return fmt.Sprintf("|%s|%s", match[1], match[3]), nil
+	}
+	return match[3], nil
+}
+
+func isRegularValid(name string) error {
+	match := nameID.FindStringSubmatch(name)
+	if match != nil {
+		name = match[2]
 	}
 	if !isValidName(name) {
-		return "", syscall.ENOENT
+		return syscall.ENOENT
+	}
+	return nil
+}
+
+func (f filesDir) cleanupName(name string, withID bool) (string, error) {
+	if f.allTags {
+		return cleanupAllTags(name, withID)
+	}
+	if err := isRegularValid(name); err != nil {
+		return "", err
 	}
 	return name, nil
 }

@@ -348,7 +348,7 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	invalidateCache()
-	f.deleteFile(newName)
+	target.deleteFile(newName)
 	srcItem.Name = newName
 	srcItem.ParentID = target.dirID
 	tx := db.Begin()

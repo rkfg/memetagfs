@@ -19,9 +19,11 @@ import (
 )
 
 var (
-	db  *gorm.DB
-	uid uint32
-	gid uint32
+	db          *gorm.DB
+	uid         uint32
+	gid         uint32
+	storagePath string
+	mountpoint  string
 )
 
 func parseUserAndSet(uidgid []string) {
@@ -53,6 +55,7 @@ func setUIDGID(uidgid string) {
 const usage = `Usage:
 	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] [--logcache] <mountpoint>
 	memetagfs [-d database.db] [-s storage] -i -t tags.sql -c data.sql -r storage
+	memetagfs -d database.db -s storage --fsck [-f] [-p] [-v] <mountpoint>
 	memetagfs -h
 
 Options:
@@ -64,19 +67,19 @@ Options:
 	-t tags.sql             tags.sql file from jtagsfs
 	-c data.sql             data.sql file from jtagsfs
 	-r storage              storage from jtagsfs
+	--fsck                  Check the database and storage for errors and try to fix them
+	-f                      Fix the errors in the database and storage
 	-v --verbose            Verbose logging
 	--logcache              Display internal cache events and effectiveness
 	-h --help               Show this help.
 `
-
-var storagePath string
 
 func main() {
 	opts, err := docopt.ParseDoc(usage)
 	if err != nil {
 		log.Fatalln("Error parsing options:", err)
 	}
-	mountpoint, _ := opts.String("<mountpoint>")
+	mountpoint, _ = opts.String("<mountpoint>")
 	if uidgid, err := opts.String("-u"); err == nil {
 		setUIDGID(uidgid)
 	} else {
@@ -93,11 +96,11 @@ func main() {
 		db.LogMode(true)
 	}
 	storagePath, _ = opts.String("--storage")
-	fuse.Debug = func(msg interface{}) {
-		// if !strings.Contains(msg.(fmt.Stringer).String(), ".git") {
-		// log.Println(msg)
-		// }
-	}
+	// fuse.Debug = func(msg interface{}) {
+	// if strings.Contains(msg.(fmt.Stringer).String(), "lost") {
+	// log.Println(msg)
+	// }
+	// }
 	db.AutoMigrate(item{})
 	if p, _ := opts.Bool("--prof"); p {
 		go func() {
@@ -122,6 +125,17 @@ func main() {
 			fuse.Unmount(mountpoint)
 		}
 	}()
+	if fsckOpt, _ := opts.Bool("--fsck"); fsckOpt {
+		fix, _ := opts.Bool("-f")
+		go func() {
+			defer fuse.Unmount(mountpoint)
+			if err := fsck(fix); err != nil {
+				log.Println("Check complete,", err)
+				return
+			}
+			log.Println("Check complete, no errors found.")
+		}()
+	}
 	if err = fs.Serve(c, filesystem{}); err != nil {
 		log.Fatal(err)
 	}

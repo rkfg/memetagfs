@@ -46,14 +46,18 @@ func filePath(id uint64) (string, error) {
 }
 
 func filePathWithTx(tx *gorm.DB, id uint64) (string, error) {
-	first := fmt.Sprintf("%06d", id/1000)
-	second := fmt.Sprintf("%03d", id%1000)
-	dir := path.Join(storagePath, first, second)
-	os.MkdirAll(dir, 0755)
 	name, err := nameByID(tx, id)
 	if err != nil {
 		return "", err
 	}
+	return filePathWithNameTx(id, name)
+}
+
+func filePathWithNameTx(id uint64, name string) (string, error) {
+	first := fmt.Sprintf("%06d", id/1000)
+	second := fmt.Sprintf("%03d", id%1000)
+	dir := path.Join(storagePath, first, second)
+	os.MkdirAll(dir, 0755)
 	return path.Join(dir, fmt.Sprintf("%09d_%s", id, name)), nil
 }
 
@@ -120,6 +124,11 @@ func (c content) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fu
 func (c content) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 	// just for vim and such to work
 	return nil
+}
+
+func (c content) Poll(ctx context.Context, req *fuse.PollRequest, resp *fuse.PollResponse) error {
+	// polling causes deadlocks on active I/O so we don't support it
+	return syscall.ENOSYS
 }
 
 func (v virtualFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {

@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -14,23 +14,22 @@ var (
 	filenameRegex = regexp.MustCompile(`(\d+)_(.*)`)
 )
 
-func copyFile(srcFilename, dstFilename string) error {
-	src, err := os.Open(srcFilename)
-	if err != nil {
-		return err
+func newPassPrinter() func(title string) {
+	var num = 1
+	return func(title string) {
+		log.Printf("Pass %d: %s...", num, title)
+		num++
 	}
-	defer src.Close()
-	dst, err := os.Create(dstFilename)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	_, err = io.Copy(dst, src)
-	return err
+}
+
+func moveFile(srcFilename, dstFilename string) error {
+	return exec.Command("mv", srcFilename, dstFilename).Run()
 }
 
 func fsck(fix bool) error {
 	var errors, fixed int
+	pass := newPassPrinter()
+	pass("checking database")
 	rows, err := db.Model(&item{}).Where("type = ?", file).Select("id, name").Rows()
 	if err != nil {
 		return err
@@ -50,7 +49,8 @@ func fsck(fix bool) error {
 		}
 	}
 	errors += len(badIDs)
-	if fix {
+	if fix && len(badIDs) > 0 {
+		pass("removing incorrect database entries")
 		log.Printf("Deleting %d file records from the database...", len(badIDs))
 		db.Exec("DELETE FROM item_tags WHERE item_id IN (?)", badIDs)
 		db.Exec("DELETE FROM items WHERE id IN (?)", badIDs)
@@ -58,6 +58,7 @@ func fsck(fix bool) error {
 		log.Println("Done.")
 	}
 	var badFiles []string
+	pass("checking storage")
 	filepath.Walk(storagePath, func(path string, info os.FileInfo, _ error) error {
 		if info.IsDir() {
 			return nil
@@ -89,6 +90,7 @@ func fsck(fix bool) error {
 	})
 	errors += len(badFiles)
 	if fix && len(badFiles) > 0 {
+		pass("recovering lost files")
 		lftag := path.Join(mountpoint, "tags", "lost+found")
 		_, err := os.Stat(lftag)
 		if os.IsNotExist(err) {
@@ -102,17 +104,12 @@ func fsck(fix bool) error {
 		for _, src := range badFiles {
 			dst := path.Join(lfbrowse, filepath.Base(src))
 			log.Printf("Recovering %s to %s...", src, dst)
-			err := copyFile(src, dst)
+			err := moveFile(src, dst)
 			if err != nil {
 				log.Printf("Error recovering file %s: %s", src, err)
 			} else {
-				log.Printf("File %s copied to %s", src, dst)
-				if err := os.Remove(src); err != nil {
-					log.Printf("Error deleting the lost storage file %s: %s", src, err)
-				} else {
-					log.Printf("Recovered file %s to lost+found", src)
-					fixed++
-				}
+				log.Printf("Recovered file %s to lost+found", src)
+				fixed++
 			}
 		}
 	}

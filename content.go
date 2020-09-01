@@ -117,18 +117,15 @@ func (c content) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fu
 			return err
 		}
 		os.Truncate(path, int64(req.Size))
+		resp.Attr.Size = req.Size
 	}
+	c.Attr(ctx, &resp.Attr)
 	return nil
 }
 
 func (c content) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 	// just for vim and such to work
 	return nil
-}
-
-func (c content) Poll(ctx context.Context, req *fuse.PollRequest, resp *fuse.PollResponse) error {
-	// polling causes deadlocks on active I/O so we don't support it
-	return syscall.ENOSYS
 }
 
 func (v virtualFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {

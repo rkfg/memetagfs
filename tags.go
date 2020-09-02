@@ -167,6 +167,11 @@ func (t tagsDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	if !db.First(&item{}, "parent_id = ?", target.ID).RecordNotFound() {
 		return syscall.ENOTEMPTY
 	}
+	var files uint64
+	db.Table("item_tags").Where("other_id = ?", target.ID).Count(&files)
+	if files > 0 {
+		return syscall.ENOTEMPTY
+	}
 	db.Delete(&item{}, "id = ?", target.ID)
 	invalidateCache()
 	return nil

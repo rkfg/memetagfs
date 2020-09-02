@@ -90,6 +90,13 @@ information and changing them would lead to renaming a file to itself.
 
 You may move, rename and delete tags in the `tags` directory. If a tag has files on it you won't be able to delete such tag.
 
+## Subdirectories
+
+Another feature that `jtagsfs` lacks is subdirectories inside query results (`@`). Sometimes you want to group multiple files together
+but don't want to create a new tag just for that. For instance, you might have photos from a trip that fit several tags but you also
+want to organize them by location or year that don't need to be tags. You can simply create directories inside `@` and put your files
+there. It just works, the directory itself gets the assigned tags. It can contain files and other directories, there's no limit.
+
 ## Duplicates
 
 Due to the nature of semantic filesystems sometimes you can get more than one file with the same name in the query results. Consider the

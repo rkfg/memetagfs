@@ -139,25 +139,29 @@ func cleanupAllTags(name string, withID bool) (string, error) {
 	return match[3], nil
 }
 
-func isRegularValid(name string) error {
+func isRegularValid(name string) (string, error) {
 	match := nameID.FindStringSubmatch(name)
 	if match != nil {
 		name = match[2]
 	}
 	if !isValidName(name) {
-		return syscall.ENOENT
+		return "", syscall.ENOENT
 	}
-	return nil
+	return name, nil
 }
 
 func (f filesDir) cleanupName(name string, withID bool) (string, error) {
 	if f.allTags {
 		return cleanupAllTags(name, withID)
 	}
-	if err := isRegularValid(name); err != nil {
+	cleanName, err := isRegularValid(name)
+	if err != nil {
 		return "", err
 	}
-	return name, nil
+	if withID {
+		return name, nil
+	}
+	return cleanName, nil
 }
 
 func (f filesDir) findFile(name string) (*item, error) {

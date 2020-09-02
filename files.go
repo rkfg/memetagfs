@@ -314,6 +314,7 @@ func (f filesDir) deleteFile(name string) error {
 				return syscall.ENOTEMPTY
 			}
 		}
+		db.Model(&i).Association("Items").Clear()
 		db.Delete(&i)
 		invalidateCache()
 		return nil

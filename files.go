@@ -41,31 +41,6 @@ func isValidName(s string) bool {
 	return !strings.Contains(s, "|")
 }
 
-func (f filesDir) getDirectoryItem(dir string) (*item, error) {
-	if len(dir) == 0 {
-		return nil, nil
-	}
-	if cached, ok := f.cache.get(dir); ok {
-		if cached.missing {
-			return nil, syscall.ENOENT
-		}
-		return cached, nil
-	}
-	rows, err := f.listFiles(dir)
-	if err != nil {
-		f.cache.putMissing(dir)
-		return nil, err
-	}
-	var result item
-	if !rows.Next() {
-		f.cache.putMissing(dir)
-		return nil, syscall.ENOENT
-	}
-	db.ScanRows(rows, &result)
-	f.cache.put(dir, &result)
-	return &result, nil
-}
-
 func (f filesDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Mode = os.ModeDir | 0755
 	attr.Size = 4096

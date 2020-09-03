@@ -37,18 +37,21 @@ anyway to build for x86.
 ## Big fat warning
 
 Due to the way filesystems work there's a thing you should know beforehand. **NEVER** delete directories under the `browse` directory.
-Any file managers and commands I ever heard do that recursively which means they will visit all possible combinations of tags removing
+Any file managers and commands I ever heard of do that recursively which means they will visit all possible combinations of tags removing
 all files they'll find effectively wiping most or all of your files! It's not possible to delete the directories themselves in `browse`
 but files can and will be deleted. If you need to delete a tag do it only in the `tags` directory which is made exactly for managing
 tags. If you need to change the tags a file belongs to, move it to another combination of tags. Deleting a file physically deletes it
 from the storage, forever! Not just from this particular combination of tags.
 
+## Preparation
+
+First, you need to create an empty directory for the database and storage. Create another empty directory where your filesystem should be
+mounted to. Then launch `memetagfs -s /path/to/storage -d /path/to/database.db /path/to/mountpoint` to mount it. You'll have 2
+directories inside, `browse` and `tags`.
+
 ## Creating tags
 
-First, you need to create an empty directory for the database and storage.
-Create another empty directory where your filesystem should be mounted to. Then launch
-`memetagfs -s /path/to/storage -d /path/to/database.db /path/to/mountpoint`
-to mount it. You'll have 2 directories inside, `browse` and `tags`. Create your tags inside the `tags` directory (as directories).
+Create your tags inside the `tags` directory (as directories).
 If you want some tags only be visible inside other tags, create them accordingly. For example, you may have tags
 like `HD`, `BD` or `DVD` that are only applicable for the `video` tag and there's no reason to have them
 visible in `pictures` tag. You then create the `video` tag, cd to it and create those `HD`, `BD` or `DVD`

@@ -54,11 +54,11 @@ func filePathWithTx(tx *gorm.DB, id uint64) (string, error) {
 }
 
 func filePathWithNameTx(id uint64, name string) (string, error) {
-	first := fmt.Sprintf("%06d", id/1000)
-	second := fmt.Sprintf("%03d", id%1000)
+	first := fmt.Sprintf("%06d", id/10000)
+	second := fmt.Sprintf("%02d", (id/100)%100)
 	dir := path.Join(storagePath, first, second)
 	os.MkdirAll(dir, 0755)
-	return path.Join(dir, fmt.Sprintf("%09d_%s", id, name)), nil
+	return path.Join(dir, fmt.Sprintf("%010d_%s", id, name)), nil
 }
 
 func (c content) filePathWithTx(tx *gorm.DB) (string, error) {

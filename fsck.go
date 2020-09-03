@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var (
@@ -74,22 +75,25 @@ func fsck(fix bool) error {
 		if info.IsDir() {
 			return nil
 		}
+		rel, err := filepath.Rel(storagePath, path)
+		if err != nil {
+			return err
+		}
+		if rel == "version.txt" {
+			return nil
+		}
 		match := filenameRegex.FindStringSubmatch(info.Name())
 		if match == nil {
 			log.Printf("Bad filename %s", path)
 			badFiles = append(badFiles, path)
 			return nil
 		}
-		rel, err := filepath.Rel(storagePath, path)
-		if err != nil {
-			return err
-		}
 		dir := filepath.Dir(rel)
-		id6, id3 := filepath.Split(dir)
+		id6, id2 := filepath.Split(dir)
 		id6 = filepath.Base(id6)
-		if len(id6) != 6 || len(id3) != 3 || id6+id3 != match[1] {
+		if len(id6) != 6 || len(id2) != 2 || !strings.HasPrefix(match[1], id6+id2) {
 			badFiles = append(badFiles, path)
-			log.Printf("Invalid path %s/%s != %s", id6, id3, match[1])
+			log.Printf("Invalid path %s/%s != %s", id6, id2, match[1])
 			return nil
 		}
 		var i item

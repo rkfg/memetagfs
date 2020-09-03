@@ -113,6 +113,7 @@ func main() {
 		}
 		return
 	}
+	upgradeStorage()
 	c, err := fuse.Mount(mountpoint)
 	if err != nil {
 		log.Fatal(err)

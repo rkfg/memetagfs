@@ -82,9 +82,10 @@ func fsck(fix bool) error {
 	}
 	pass("checking dangling tags")
 	var dangling int
-
 	db.Raw("WITH allids AS (SELECT id FROM items) SELECT COUNT(*) FROM item_tags WHERE item_id NOT IN allids OR other_id NOT IN allids").Count(&dangling)
-	log.Printf("Found %d dangling tag references", dangling)
+	if dangling > 0 {
+		log.Printf("Found %d dangling tag references", dangling)
+	}
 	errors += dangling
 	if dangling > 0 && fix {
 		rows := db.Exec("WITH allids AS (SELECT id FROM items) DELETE FROM item_tags WHERE item_id NOT IN allids OR other_id NOT IN allids").RowsAffected

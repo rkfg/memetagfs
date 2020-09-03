@@ -131,7 +131,7 @@ func fsck(fix bool) error {
 		}
 		return nil
 	})
-	errors += len(lostFiles)
+	errors += len(lostFiles) + len(badFiles)
 	if fix && len(lostFiles) > 0 {
 		pass("recovering lost files")
 		lftag := path.Join(mountpoint, "tags", "lost+found")
@@ -161,6 +161,8 @@ func fsck(fix bool) error {
 		for _, itemID := range badFiles {
 			if err := fixFilename(itemID); err != nil {
 				log.Println(err)
+			} else {
+				fixed++
 			}
 		}
 	}

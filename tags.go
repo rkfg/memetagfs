@@ -37,6 +37,9 @@ func parseName(i *item) (related []string, err error) {
 		}
 	}
 	i.Name = filteredName
+	if i.Type == grouptag && len(related) > 0 {
+		return nil, syscall.EINVAL
+	}
 	for i := range related {
 		related[i] = strings.TrimSpace(related[i])
 	}

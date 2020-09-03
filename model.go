@@ -25,6 +25,10 @@ func (i *item) fuseType() fuse.DirentType {
 	return fuse.DT_Unknown
 }
 
+func (i *item) toDirent() fuse.Dirent {
+	return fuse.Dirent{Inode: uint64(i.ID), Name: i.Name, Type: i.fuseType()}
+}
+
 type itemType uint
 
 const (

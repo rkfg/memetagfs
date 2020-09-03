@@ -22,7 +22,7 @@ type (
 		allTags bool
 		cache   *fileCache
 	}
-	filelist       map[string][]fuse.Dirent
+	filelist       map[string][]*item
 	taggedFilelist map[id]*item
 )
 
@@ -125,15 +125,15 @@ func isRegularValid(name string) (string, error) {
 	return name, nil
 }
 
-func (f filesDir) cleanupName(name string, withID bool) (string, error) {
+func (f filesDir) cleanupName(name string, keepID bool) (string, error) {
 	if f.allTags {
-		return cleanupAllTags(name, withID)
+		return cleanupAllTags(name, keepID)
 	}
 	cleanName, err := isRegularValid(name)
 	if err != nil {
 		return "", err
 	}
-	if withID {
+	if keepID {
 		return name, nil
 	}
 	return cleanName, nil
@@ -142,15 +142,15 @@ func (f filesDir) cleanupName(name string, withID bool) (string, error) {
 func (f filesDir) findFile(name string) (*item, error) {
 	if cached, ok := f.cache.get(name); ok {
 		if cached.missing {
-			return nil, nil
+			return nil, syscall.ENOENT
 		}
 		return cached, nil
 	}
-	name, err := f.cleanupName(name, true)
+	cleanName, err := f.cleanupName(name, true)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := f.listFiles(name)
+	rows, err := f.listFiles(cleanName)
 	if err != nil {
 		f.cache.putMissing(name)
 		return nil, err
@@ -158,10 +158,14 @@ func (f filesDir) findFile(name string) (*item, error) {
 	defer rows.Close()
 	if !rows.Next() {
 		f.cache.putMissing(name)
-		return nil, nil
+		return nil, syscall.ENOENT
 	}
 	var i item
 	db.ScanRows(rows, &i)
+	if rows.Next() { // more than one result, that shouldn't happen
+		f.cache.putMissing(name)
+		return nil, syscall.ENOENT
+	}
 	f.cache.put(name, &i)
 	return &i, nil
 }
@@ -174,15 +178,18 @@ func tagsItems(activeTagNames []string) []item {
 	return tags
 }
 
-func dedupFilelist(fl filelist) []fuse.Dirent {
+func (f filesDir) dedupFilelist(fl filelist) []fuse.Dirent {
 	var result = emptyDirAlloc(len(fl))
 	for k := range fl {
 		if len(fl[k]) == 1 {
-			result = append(result, fl[k][0])
+			result = append(result, fl[k][0].toDirent())
+			f.cache.put(fl[k][0].Name, fl[k][0])
 		} else {
 			for i := range fl[k] {
-				fl[k][i].Name = "|" + strconv.FormatUint(fl[k][i].Inode, 10) + "|" + fl[k][i].Name
-				result = append(result, fl[k][i])
+				tmp := *fl[k][i]
+				fl[k][i].Name = "|" + strconv.FormatUint(uint64(fl[k][i].ID), 10) + "|" + fl[k][i].Name
+				f.cache.put(fl[k][i].Name, &tmp)
+				result = append(result, fl[k][i].toDirent())
 			}
 		}
 	}
@@ -190,11 +197,7 @@ func dedupFilelist(fl filelist) []fuse.Dirent {
 }
 
 func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	tags := false
-	if f.allTags {
-		tags = true
-	}
-	rows, err := f.listFilesWithTags("", tags)
+	rows, err := f.listFilesWithTags("", f.allTags)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +207,7 @@ func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	for rows.Next() {
 		var i item
 		db.ScanRows(rows, &i)
-		if tags {
+		if f.allTags {
 			if _, ok := tfl[i.ID]; ok {
 				tfl[i.ID].tags = append(tfl[i.ID].tags, i.Tag)
 			} else {
@@ -213,11 +216,10 @@ func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 			}
 		} else {
 			name := i.Name
-			f.cache.put(name, &i)
-			fl[name] = append(fl[name], fuse.Dirent{Inode: uint64(i.ID), Name: name, Type: i.fuseType()})
+			fl[name] = append(fl[name], &i)
 		}
 	}
-	if tags {
+	if f.allTags {
 		result := emptyDir()
 		for idx := range tfl {
 			i := tfl[idx]
@@ -227,7 +229,7 @@ func (f filesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		}
 		return result, nil
 	}
-	return dedupFilelist(fl), nil
+	return f.dedupFilelist(fl), nil
 }
 
 func (f filesDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (node fs.Node, handle fs.Handle, err error) {
@@ -267,6 +269,11 @@ func (f filesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	if i.Type == dir {
 		return filesDir{hasTags: hasTags{tags: f.tags}, dirID: i.ID, cache: newCache()}, nil
 	}
+	cleanName, err := f.cleanupName(i.Name, false)
+	if err != nil {
+		return nil, err
+	}
+	i.Name = cleanName
 	contentCache.putID(i.ID, i)
 	return content{id: uint64(i.ID), itype: i.Type}, nil
 }
@@ -328,7 +335,14 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	invalidateCache()
-	target.deleteFile(newName)
+	if dstItem, err := target.findFile(newName); err == nil && dstItem != nil {
+		// when mounted over sshfs inodes are not preserved so the "same file" error isn't reported
+		// which can lead to deleting the source file when moved over itself. Only delete the target
+		// if it's actually a different file.
+		if dstItem.ID != srcItem.ID {
+			target.deleteFile(newName)
+		}
+	}
 	srcItem.Name = newName
 	srcItem.ParentID = target.dirID
 	tx := db.Begin()

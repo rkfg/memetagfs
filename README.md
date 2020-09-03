@@ -81,7 +81,11 @@ the result of the query. Most of the time the default behavior will be just what
 
 To change tags just move the file to another tag path. If you remove the file, it's removed from the storage forever,
 not just from this tag or set of tags! If you want to remove one or several tags, move the file to the path that doesn't
-contain these tags. If the same file is visible there you can drop it to the `@@` directory instead so there's no conflict.
+contain these tags. If the same file is visible there you can use exclusion tags so the file disappears from the query. Only positive
+tags are applied. For example, moving from `/browse/pics/cats/dogs/@/image.jpg` to `/browse/pics/cats/@/image.jpg` is not possible
+because the same `image.jpg` will be shown in the target directory. So move it to `/browse/pics/cats/_/dogs/@/image.jpg`. Since you
+excluded `dogs` tag this file won't appear in the query results (because it has this tag before moving) and only the `pics` and
+`cats` tags will be set.
 
 There's also a special `@@` directory which shows internal file IDs and all tags the file has. It's useful to check
 if a file is tagged correctly. You may move files from and to this directory just as fine as to/from `@`. Don't try

@@ -109,7 +109,7 @@ there. It just works, the directory itself gets the assigned tags. It can contai
 Due to the nature of semantic filesystems sometimes you can get more than one file with the same name in the query results. Consider the
 following example: file 1.jpg that belongs to tags `pics`, `cats` and another file 1.jpg that belongs to `pics` and `dogs`. It's perfectly valid but what would happen if you visit just `pics` tag? Both files would appear and without special measures there's no way
 for other programs to differentiate between these two. Such situation is handled by prefixing the filenames with the IDs of the database
-records. So in this case the files would look like `1231|1.jpg` and `389|1.jpg` (if their internal IDs are 1231 and 389). If you rename
+records. So in this case the files would look like `|1231|1.jpg` and `|389|1.jpg` (if their internal IDs are 1231 and 389). If you rename
 either of the files, the deduplication mechanic will turn off and you'll see the original filenames again. Moving such files around
 is fine, the deduplicating prefix is transparently removed. As a consequence, you can't use the `|` symbol in the filenames.
 
@@ -119,4 +119,4 @@ Software has bugs. It's inevitable. But losing data because of that is unaccepta
 can check the database and storage for contradictions and salvage the files that for some reason lost all database records and became
 invisible. Use `--fsck` parameter to scan the internals and report the number of errors found. Use an additional `-f` flag to fix those
 errors. All unreferenced files will be put to a root tag `lost+found` (it will be created if it doesn't exist) and you can sort them
-later. Any database records that refer to non-existing files will be deleted.
+later. Any database records that refer to non-existing files will be deleted, and incorrectly named files will be renamed.

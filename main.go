@@ -121,6 +121,7 @@ func main() {
 	defer c.Close()
 	cc := make(chan os.Signal)
 	signal.Notify(cc, os.Interrupt)
+	signal.Notify(cc, syscall.SIGTERM)
 	go func() {
 		for range cc {
 			fuse.Unmount(mountpoint)

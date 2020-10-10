@@ -107,11 +107,30 @@ there. It just works, the directory itself gets the assigned tags. It can contai
 ## Duplicates
 
 Due to the nature of semantic filesystems sometimes you can get more than one file with the same name in the query results. Consider the
-following example: file 1.jpg that belongs to tags `pics`, `cats` and another file 1.jpg that belongs to `pics` and `dogs`. It's perfectly valid but what would happen if you visit just `pics` tag? Both files would appear and without special measures there's no way
+following example: file 1.jpg that belongs to tags `pics`, `cats` and another file 1.jpg that belongs to `pics` and `dogs`. It's perfectly 
+valid but what would happen if you visit just `pics` tag? Both files would appear and without special measures there's no way
 for other programs to differentiate between these two. Such situation is handled by prefixing the filenames with the IDs of the database
 records. So in this case the files would look like `|1231|1.jpg` and `|389|1.jpg` (if their internal IDs are 1231 and 389). If you rename
 either of the files, the deduplication mechanic will turn off and you'll see the original filenames again. Moving such files around
 is fine, the deduplicating prefix is transparently removed. As a consequence, you can't use the `|` symbol in the filenames.
+
+# Gotchas
+
+Semantic filesystems differ a lot from hierarchic approaches. Operating systems have some assumptions about the filesystems (like caching) 
+that not always play nicely with memetagfs. There are some things to remember and never do, unfortunately I'm not aware of a definitive way
+to prevent the user from doing it as actions like these can cause inadvertent loss or corruption of data. It's a leaky abstraction that's on
+a different (higher) level so it's not possible to fix on the filesystem level.
+
+1. As noted above, never delete tags in the `browse` subdirectory. It will recursively go through all tags combinations deleting actual
+files in the process, you're likely to lose some or all of your files in this filesystem (the rest of your data is safe of course).
+2. Renaming files might be tricky. Imagine a file `cat.jpg` having tags `cats`, `funny`, `meme`, `gray`. You found this image going to
+`/browse/cats/funny/@/cat.jpg`. Some of the tags matched and you got this image. What happens if you rename it to, say, `tom.jpg`? The
+program usually analyzes the full path and assigns the tags accordingly. This file should now only have two tags, `cats` and `funny`, and
+the rest will be removed. Why? Because renaming and moving is internally the same operation. When you move a file to assign or remove tags
+the program sees "renaming" just as when you change the name of the file. Since losing tags like that is annoying (not just unobvious but
+also not instantly visible), they will only be reassigned if the file name hasn't changed. This, in turn, means that moving a file AND
+renaming it is not possible (but it should not be needed very often) and renaming takes precedence. If you move and rename, the file name
+will change but the tags will stay the same.
 
 # Checking for errors
 

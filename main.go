@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -53,7 +54,7 @@ func setUIDGID(uidgid string) {
 }
 
 const usage = `Usage:
-	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] [--logcache] <mountpoint>
+	memetagfs [-v] [-s storage] [-d database.db] [-u uid:gid] [-p] [--logcache] [--logfuse string] <mountpoint>
 	memetagfs [-d database.db] [-s storage] -i -t tags.sql -c data.sql -r storage
 	memetagfs -d database.db -s storage --fsck [-f] [-p] [-v] <mountpoint>
 	memetagfs -h
@@ -71,6 +72,7 @@ Options:
 	-f                      Fix the errors in the database and storage
 	-v --verbose            Verbose logging
 	--logcache              Display internal cache events and effectiveness
+	--logfuse string        Shows filesystem access for lines that contain 'string'
 	-h --help               Show this help.
 `
 
@@ -96,11 +98,13 @@ func main() {
 		db.LogMode(true)
 	}
 	storagePath, _ = opts.String("--storage")
-	// fuse.Debug = func(msg interface{}) {
-	// if strings.Contains(msg.(fmt.Stringer).String(), "lost") {
-	// log.Println(msg)
-	// }
-	// }
+	if logfuse, err := opts.String("--logfuse"); err == nil {
+		fuse.Debug = func(msg interface{}) {
+			if strings.Contains(msg.(fmt.Stringer).String(), logfuse) {
+				log.Println(msg)
+			}
+		}
+	}
 	db.AutoMigrate(item{})
 	if p, _ := opts.Bool("--prof"); p {
 		go func() {

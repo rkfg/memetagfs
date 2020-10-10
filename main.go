@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	_ "net/http/pprof"
 
@@ -134,7 +135,19 @@ func main() {
 	if fsckOpt, _ := opts.Bool("--fsck"); fsckOpt {
 		fix, _ := opts.Bool("-f")
 		go func() {
-			defer fuse.Unmount(mountpoint)
+			defer func() {
+				log.Println("Wait for a second for file operations to finish before unmounting...")
+				time.Sleep(time.Second * 1)
+				for i := 0; i < 5; i++ {
+					if err := fuse.Unmount(mountpoint); err != nil {
+						log.Println("Error while unmounting", err)
+						time.Sleep(time.Second * 3)
+					} else {
+						break
+					}
+				}
+				log.Println("Couldn't unmount the filesystem after fsck, please do it manually.")
+			}()
 			if err := fsck(fix); err != nil {
 				log.Println("Check complete,", err)
 				return

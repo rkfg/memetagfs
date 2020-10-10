@@ -356,6 +356,7 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 		return err
 	}
 	tx.Commit()
+	invalidateCache()
 	return nil
 }
 

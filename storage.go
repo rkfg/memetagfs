@@ -48,7 +48,7 @@ func upgradeStorage() error {
 				return err
 			}
 			filepath.Walk(olddir, func(path string, info os.FileInfo, _ error) error {
-				if info.IsDir() {
+				if info == nil || info.IsDir() {
 					return nil
 				}
 				rel, err := filepath.Rel(storagePath, path)

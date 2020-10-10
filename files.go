@@ -343,17 +343,22 @@ func (f filesDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs
 			target.deleteFile(newName)
 		}
 	}
+	rename := srcItem.Name != newName
 	srcItem.Name = newName
 	srcItem.ParentID = target.dirID
 	tx := db.Begin()
 	defer tx.RollbackUnlessCommitted()
-	tx.Save(&srcItem).Association("Items").Replace(tags)
-	to, err := filePathWithTx(tx, uint64(srcItem.ID))
-	if err != nil {
-		return err
-	}
-	if err := os.Rename(from, to); err != nil {
-		return err
+	tx = tx.Save(&srcItem)
+	if !rename {
+		tx.Association("Items").Replace(tags)
+	} else {
+		to, err := filePathWithTx(tx, uint64(srcItem.ID))
+		if err != nil {
+			return err
+		}
+		if err := os.Rename(from, to); err != nil {
+			return err
+		}
 	}
 	tx.Commit()
 	invalidateCache()

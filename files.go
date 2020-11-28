@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -53,6 +54,12 @@ func (f filesDir) listFiles(name string) (*sql.Rows, error) {
 	return f.listFilesWithTags(name, false)
 }
 
+func reverseSlice(slice []interface{}) {
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+}
+
 func (f filesDir) listFilesWithTags(name string, tags bool) (*sql.Rows, error) {
 	positiveTagNames, negativeTagNames := f.getTagsWithNegative()
 	tagFilter := make([]string, 0, len(positiveTagNames)+len(negativeTagNames)+3)
@@ -67,6 +74,11 @@ func (f filesDir) listFilesWithTags(name string, tags bool) (*sql.Rows, error) {
 			params = append(params, negativeTagNames[i])
 		}
 	}
+	// speed up SQL because latter tags usually have much less files
+	if len(negativeTagNames) > 0 { // only reverse SQL filter if there are negative tags, otherwise it's pointless
+		sort.Sort(sort.Reverse(sort.StringSlice(tagFilter)))
+	}
+	reverseSlice(params)
 	if name != "" {
 		matches := nameID.FindStringSubmatch(name)
 		if matches != nil {

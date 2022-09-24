@@ -36,7 +36,7 @@ func (bc buildConfig) zipName() string {
 
 var configs = []buildConfig{
 	{os: "linux", arch: "amd64", suffix: "linux.amd64"},
-	{os: "linux", arch: "386", suffix: "linux.386"},
+	{os: "linux", arch: "386", suffix: "linux.386", crossCompiler: "i686-linux-gnu-gcc"},
 	{os: "linux", arch: "mipsle", suffix: "linux.mipsel", crossCompiler: "mipsel-linux-gnu-gcc"},
 	{os: "linux", arch: "arm", suffix: "linux.arm", crossCompiler: "arm-linux-gnueabi-gcc"},
 }
